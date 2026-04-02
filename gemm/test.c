@@ -19,54 +19,54 @@
 
 static double get_time(clock_t start, clock_t end)
 {
-	return (double)(end - start) / CLOCKS_PER_SEC;
+    return (double)(end - start) / CLOCKS_PER_SEC;
 }
 
 void gemm_naive(int N, const float *A, const float *B, float *C) {
-	for (int i = 0; i < N; ++i) {
-		for (int k = 0; k < N; ++k) {
-			for (int j = 0; j < N; ++j) {
-				C[i * N + j] += A[i * N + k] * B[k * N + j];
-			}
-		}
-	}
+    for (int i = 0; i < N; ++i) {
+        for (int k = 0; k < N; ++k) {
+            for (int j = 0; j < N; ++j) {
+                C[i * N + j] += A[i * N + k] * B[k * N + j];
+            }
+        }
+    }
 }
 
 #if defined(__ARM_FEATURE_SVE)
 void gemm_sve(int N, const float *A, const float *B, float *C) {
-	for (int i = 0; i < N; ++i) {
-		const float *Ai = A + (size_t)i * (size_t)N;
-		float *Ci = C + (size_t)i * (size_t)N;
-		for (int j = 0; j < N; j += svcntw()) { //svcntw(): SVE CouNT Words (SVE 벡터 레지스터에 float이 몇개나 들어가는지,현재 16 (512bit))
-			
-			// svwhilelt_b32: WHILE Less Than (32-bit 타입용)
+    for (int i = 0; i < N; ++i) {
+        const float *Ai = A + (size_t)i * (size_t)N;
+        float *Ci = C + (size_t)i * (size_t)N;
+        for (int j = 0; j < N; j += svcntw()) { //svcntw(): SVE CouNT Words (SVE 벡터 레지스터에 float이 몇개나 들어가는지,현재 16 (512bit))
+            
+            // svwhilelt_b32: WHILE Less Than (32-bit 타입용)
             // j부터 N까지 루프를 돌 때, 유효한 데이터 범위에 대한 '마스크(pg)'를 생성
             // 만약 남은 원소가 벡터 길이보다 적으면, 나머지 부분은 false로 채웁니
-			svbool_t pg = svwhilelt_b32((uint64_t)j, (uint64_t)N);
+            svbool_t pg = svwhilelt_b32((uint64_t)j, (uint64_t)N);
 
-			// svld1: SVE LoaD (Vector 1)
+            // svld1: SVE LoaD (Vector 1)
             // pg(predicate)가 참인 부분만 Ci[j] 메모리에서 데이터를 읽어 벡터 레지스터로 Load
-			svfloat32_t acc = svld1(pg, &Ci[j]);
+            svfloat32_t acc = svld1(pg, &Ci[j]);
 
-			for (int k = 0; k < N; ++k) {
-				// svdup_f32: SVE DUPlicate (float 32)
+            for (int k = 0; k < N; ++k) {
+                // svdup_f32: SVE DUPlicate (float 32)
                 // 스칼라 값 Ai[k]를 벡터의 모든 채널(lane)에 broadcast
-				svfloat32_t a = svdup_f32(Ai[k]);
+                svfloat32_t a = svdup_f32(Ai[k]);
 
-				// B 행렬의 k행 j열부터 데이터를 벡터로 로드
-				svfloat32_t b = svld1(pg, &B[(size_t)k * (size_t)N + (size_t)j]);
+                // B 행렬의 k행 j열부터 데이터를 벡터로 로드
+                svfloat32_t b = svld1(pg, &B[(size_t)k * (size_t)N + (size_t)j]);
 
-				// svmla_f32_m: SVE Multiply-Add (float 32, Merging mode)
+                // svmla_f32_m: SVE Multiply-Add (float 32, Merging mode)
                 // acc = acc + (a * b) 연산 수행
                 // '_m'은 마스크(pg)가 false인 Lane에 대해 기존 acc 값을 그대로 '유지(Merge)'
-				acc = svmla_f32_m(pg, acc, a, b);
-			}
+                acc = svmla_f32_m(pg, acc, a, b);
+            }
 
-			// svst1: SVE STore (Vector 1)
+            // svst1: SVE STore (Vector 1)
             // 계산된 벡터 acc를 메모리 Ci[j]에 다시 저장. 마스크를 써서 안전하게 저장.
-			svst1(pg, &Ci[j], acc);
-		}
-	}
+            svst1(pg, &Ci[j], acc);
+        }
+    }
 }
 
 void gemm_sve_unrolling(int N, const float *A, const float *B, float *C) {
@@ -175,98 +175,98 @@ void gemm_sme_transpose(int N, const float *A_T, const float *B, float *C)
 #endif 
 
 void gemm_sme2(int N, const float *A, const float *B, float *C) {
-	(void)N;
-	(void)A;
-	(void)B;
-	(void)C;
+    (void)N;
+    (void)A;
+    (void)B;
+    (void)C;
 }
 
 void transpose_matrix(int N, const float *B, float *B_T) {
-	for (int i = 0; i < N; i++) {
-		for (int j = 0; j < N; j++) {
-			B_T[j * N + i] =
-				B[i * N + j];
-		}
-	}
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            B_T[j * N + i] =
+                B[i * N + j];
+        }
+    }
 }
 
 int verify_matrix(int N, const float *ref, const float *test, const char *name) {
-	for (int i = 0; i < N * N; i++) {
-		if (fabs(ref[i] - test[i]) > EPSILON) {
-			printf("[FAIL] %s Mismatch at index %d: Expected %f, Got %f\n", name, i, ref[i], test[i]);
-			return FAILURE;
-		}
-	}
-	printf("[PASS] %s result is correct!\n", name);
-	return SUCCESS;
+    for (int i = 0; i < N * N; i++) {
+        if (fabs(ref[i] - test[i]) > EPSILON) {
+            printf("[FAIL] %s Mismatch at index %d: Expected %f, Got %f\n", name, i, ref[i], test[i]);
+            return FAILURE;
+        }
+    }
+    printf("[PASS] %s result is correct!\n", name);
+    return SUCCESS;
  }
 
 
 int main(int argc, char *argv[])
 {
-	int N = DEFAULT_N;
+    int N = DEFAULT_N;
 
-	if (argc >= 2) {
-		char *end;
-		long n = strtol(argv[1], &end, 10);
-		if (end != argv[1] && *end == '\0' && n > 0 && n <= INT_MAX)
-			N = (int)n;
-	}
+    if (argc >= 2) {
+        char *end;
+        long n = strtol(argv[1], &end, 10);
+        if (end != argv[1] && *end == '\0' && n > 0 && n <= INT_MAX)
+            N = (int)n;
+    }
 
-	srand(time(NULL));
+    srand(time(NULL));
 
-	size_t bytes = (size_t)N * (size_t)N * sizeof(float);
-	// Input array
-	float *A = (float *)malloc(bytes);
-	float *B = (float *)malloc(bytes);
-	float *B_T = (float *)malloc(bytes);
+    size_t bytes = (size_t)N * (size_t)N * sizeof(float);
+    // Input array
+    float *A = (float *)malloc(bytes);
+    float *B = (float *)malloc(bytes);
+    float *B_T = (float *)malloc(bytes);
 
-	// Result array
-	float *C_base = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
-	float *C_SVE = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
-	float *C_SME = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
-	//float *C_SME2 = (float *)malloc(bytes);
-	
-	// Value initialization (0.0 ~ 1.0)
-	for (int i = 0; i < N * N; i++) {
-		A[i] = (float)rand() / (float)RAND_MAX;
-		B[i] = (float)rand() / (float)RAND_MAX;
-	}
-	transpose_matrix(N, B, B_T);
+    // Result array
+    float *C_base = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
+    float *C_SVE = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
+    float *C_SME = (float *)calloc((size_t)N * (size_t)N, sizeof(float));
+    //float *C_SME2 = (float *)malloc(bytes);
+    
+    // Value initialization (0.0 ~ 1.0)
+    for (int i = 0; i < N * N; i++) {
+        A[i] = (float)rand() / (float)RAND_MAX;
+        B[i] = (float)rand() / (float)RAND_MAX;
+    }
+    transpose_matrix(N, B, B_T);
 
-	printf("Matrix Size: %d x %d\n", N, N);
-	printf("----------------------------------\n");
+    printf("Matrix Size: %d x %d\n", N, N);
+    printf("----------------------------------\n");
 
-	clock_t start, end;
+    clock_t start, end;
 
-	// 1. Naive GEMM (answer sheet)
-	start = clock();
-	gemm_naive(N, A, B, C_base);
-	end = clock();
-	printf("1. Baseline (Core) Time : %.4f seconds\n", get_time(start, end));
+    // 1. Naive GEMM (answer sheet)
+    start = clock();
+    gemm_naive(N, A, B, C_base);
+    end = clock();
+    printf("1. Baseline (Core) Time : %.4f seconds\n", get_time(start, end));
 
-	// 2. SVE
+    // 2. SVE
 #if defined(__ARM_FEATURE_SVE)
-	start = clock();
-	//gemm_sve(N, A, B, C_SVE);
-	gemm_sve_unrolling(N, A, B, C_SVE);
-	end = clock();
-	printf("2. SVE Time : %.4f seconds\n", get_time(start, end));
-	verify_matrix(N, C_base, C_SVE, "SVE");
+    start = clock();
+    //gemm_sve(N, A, B, C_SVE);
+    gemm_sve_unrolling(N, A, B, C_SVE);
+    end = clock();
+    printf("2. SVE Time : %.4f seconds\n", get_time(start, end));
+    verify_matrix(N, C_base, C_SVE, "SVE");
 #endif
-	// 3. SME
+    // 3. SME
 #if defined(__ARM_FEATURE_SME)
     float *A_T = (float *)malloc(bytes);
     transpose(N, A, A_T);
-	start = clock();
-	gemm_sme_transpose(N, A_T, B, C_SME);
-	end = clock();
-	printf("3. SME Time : %.4f seconds\n", get_time(start, end));
-	verify_matrix(N, C_base, C_SME, "SME");
+    start = clock();
+    gemm_sme_transpose(N, A_T, B, C_SME);
+    end = clock();
+    printf("3. SME Time : %.4f seconds\n", get_time(start, end));
+    verify_matrix(N, C_base, C_SME, "SME");
 #endif
-	// 4. SME2
+    // 4. SME2
 
-	free(A); free(B); free(B_T);
-	free(C_base); free(C_SVE); free(C_SME);
-	return 0;
+    free(A); free(B); free(B_T);
+    free(C_base); free(C_SVE); free(C_SME);
+    return 0;
 }
