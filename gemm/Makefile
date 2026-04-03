@@ -16,6 +16,7 @@ TARGET_AARCH64 := test_gemm_aarch64
 TARGET_AARCH64_SVE := test_gemm_aarch64_sve
 TARGET_AARCH64_SVE2 := test_gemm_aarch64_sve2
 TARGET_AARCH64_SME := test_gemm_aarch64_sme
+TARGET_AARCH64_SME2 := test_gemm_aarch64_sme2
 TARGET         ?= $(TARGET_NATIVE)
 SRC            := test.c
 
@@ -47,12 +48,15 @@ aarch64-sve2:
 aarch64-sme:
 	$(MAKE) CROSS_COMPILE=aarch64-conda-linux-gnu- TARGET=$(TARGET_AARCH64_SME) CFLAGS='$(CFLAGS) -march=armv9-a+sme'
 
+aarch64-sme2:
+	$(MAKE) CROSS_COMPILE=aarch64-conda-linux-gnu- TARGET=$(TARGET_AARCH64_SME2) CFLAGS='$(CFLAGS) -march=armv9-a+sve2+sme2'
+
 # Debian/Ubuntu 패키지 gcc-aarch64-linux-gnu 의 기본 트리플
 aarch64-apt:
 	$(MAKE) CROSS_COMPILE=aarch64-linux-gnu- TARGET=$(TARGET_AARCH64) CFLAGS='$(CFLAGS) $(AARCH64_CFLAGS)'
 
 clean:
-	rm -f $(TARGET_NATIVE) $(TARGET_AARCH64) $(TARGET_AARCH64_SVE) $(TARGET_AARCH64_SVE2) $(TARGET_AARCH64_SME)
+	rm -f $(TARGET_NATIVE) $(TARGET_AARCH64) $(TARGET_AARCH64_SVE) $(TARGET_AARCH64_SVE2) $(TARGET_AARCH64_SME) $(TARGET_AARCH64_SME2)
 
 # 호스트에서 실행 (크로스로 만든 바이너리는 qemu-aarch64 ./$(TARGET) 등으로 실행)
 run: $(TARGET)
