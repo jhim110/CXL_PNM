@@ -3,95 +3,120 @@
 #include <math.h>
 #include <time.h>
 
-// 1. 데이터 타입 정의: 이 부분을 _Float16 등으로 변경하세요.
+// 데이터 타입 정의
 typedef float target_dtype;
 
-// 2. 수학 함수 매크로: 데이터 타입 변경 시 (예: _Float16의 경우 형변환 혹은 다른 함수로) 맞게 수정하세요.
-#define MATH_EXP(x) expf(x)
-#define MATH_SQRT(x) sqrtf(x)
+void init_matrix(target_dtype *A, int rows, int cols) {
+    for (int i = 0; i < rows * cols; i++) {
+        A[i] = (target_dtype)((float)rand() / RAND_MAX);
+    }
+}
 
-// Q * K^T 연산
-void matmul_q_kt(int M, int N, int K, const target_dtype* Q, const target_dtype* K_mat, target_dtype* Out) {
+//Naive
+void gemm_qk(target_dtype* Q, target_dtype* K, target_dtype* S, int M, int N, int D) { //S = Q x K^T
+    // GEMM1. Q * K^T → [M x D] x [N x D] → [M x N]
+    for (int i = 0; i < M; i++) {
+        for (int j = 0; j < N; j++) {
+            target_dtype sum = 0.0f;
+            for (int k = 0; k < D; k++) {
+                sum += Q[i*D + k] * K[j*D + k];
+            }
+            S[i*N + j] = sum;
+        }
+    }
+}
+
+//Naive
+void gemm(target_dtype* A, target_dtype* B, target_dtype* C, int M, int K, int N) { //C = A x B
+    // GEMM2. Score * V → [M x N] x [N x D] → [M x D]
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             target_dtype sum = 0.0f;
             for (int k = 0; k < K; k++) {
-                sum += Q[i * K + k] * K_mat[j * K + k];
+                sum += A[i*K + k] * B[k*N + j]; //TODO: col-major to row-major
             }
-            Out[i * N + j] = sum;
+            C[i*N + j] = sum;
         }
     }
 }
 
-// 스케일링 및 Softmax 연산
-void scale_softmax(int M, int N, target_dtype scale, target_dtype* Score) {
-    for (int i = 0; i < M; i++) {
-        target_dtype max_val = -INFINITY;
-        
-        // Max 값 찾기
-        for (int j = 0; j < N; j++) {
-            target_dtype val = Score[i * N + j] * scale;
-            Score[i * N + j] = val;
-            if (val > max_val) max_val = val;
+void scaling(target_dtype* S, int M, int N, int D) {
+    target_dtype scale = 1.0f / sqrtf((target_dtype)D);
+    for (int i = 0; i < M * N; i++) {
+        S[i] *= scale;
+    }
+}
+
+void softmax(target_dtype *S, int rows, int cols) {
+    for (int i = 0; i < rows; i++) {
+        target_dtype max_val = S[i*cols];
+
+        // find max (numerical stability)
+        for (int j = 1; j < cols; j++) {
+            if (S[i*cols + j] > max_val)
+                max_val = S[i*cols + j];
         }
 
-        // Exp 계산 및 합계 구하기
-        target_dtype sum_exp = 0.0f;
-        for (int j = 0; j < N; j++) {
-            Score[i * N + j] = (target_dtype)MATH_EXP((float)(Score[i * N + j] - max_val));
-            sum_exp += Score[i * N + j];
+        target_dtype sum = 0.0f;
+
+        // exp + accumulate
+        for (int j = 0; j < cols; j++) {
+            S[i*cols + j] = expf((float)S[i*cols + j] - max_val);
+            sum += S[i*cols + j];
         }
 
-        // 정규화 (Softmax)
-        for (int j = 0; j < N; j++) {
-            Score[i * N + j] /= sum_exp;
+        // normalize
+        for (int j = 0; j < cols; j++) {
+            S[i*cols + j] /= sum;
         }
     }
 }
 
-// Score * V 연산
-void matmul_score_v(int M, int N, int K, const target_dtype* Score, const target_dtype* V, target_dtype* Out) {
-    for (int i = 0; i < M; i++) {
-        for (int j = 0; j < N; j++) {
-            target_dtype sum = 0.0f;
-            for (int k = 0; k < K; k++) {
-                sum += Score[i * K + k] * V[k * N + j];
-            }
-            Out[i * N + j] = sum;
-        }
-    }
+void attention_MHA(target_dtype* Q, target_dtype* K, target_dtype* V, target_dtype* S, target_dtype* O, int M, int N, int D) {
+    // GEMM1. S = Q * K^T = [M x D] x [N x D] = [M x N]
+    gemm_qk(Q, K, S, M, N, D);
+
+    // Scaling and Softmax(S)
+    scaling(S, M, N, D);
+    softmax(S, M, N);
+
+    // GEMM2. O = S * V = [M x N] x [N x D] = [M x D]
+    gemm(S, V, O, M, N, D);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     srand((unsigned int)time(NULL));
 
-    int seq_len = 128;
-    int head_dim = 64;
+    //Defaulty
+    int M = 32;     // Number of Qeury Row (#Batch * #Head), Reshaping  [B, H, Tq, D] to [B*H, Tq, D]
+    int N = 128;    // KV Cache Length
+    int D = 64;     // (head) dimensions (length of vector)
 
-    target_dtype* Q = (target_dtype*)malloc(seq_len * head_dim * sizeof(target_dtype));
-    target_dtype* K_mat = (target_dtype*)malloc(seq_len * head_dim * sizeof(target_dtype));
-    target_dtype* V = (target_dtype*)malloc(seq_len * head_dim * sizeof(target_dtype));
-    target_dtype* Score = (target_dtype*)malloc(seq_len * seq_len * sizeof(target_dtype));
-    target_dtype* Out = (target_dtype*)malloc(seq_len * head_dim * sizeof(target_dtype));
-
-    // 데이터 초기화 (타입 변경 시 경고를 방지하기 위해 float에서 캐스팅)
-    for(int i = 0; i < seq_len * head_dim; i++) {
-        Q[i] = (target_dtype)((float)rand() / RAND_MAX);
-        K_mat[i] = (target_dtype)((float)rand() / RAND_MAX);
-        V[i] = (target_dtype)((float)rand() / RAND_MAX);
+    if (argc >= 4) {
+        M = atoi(argv[1]);
+        N = atoi(argv[2]);
+        D = atoi(argv[3]);
+        printf("[Config] M: %d, N: %d, D: %d\n", M, N, D);
+    } else {
+        printf("Usage: %s <M(Batch*Head)> <N(KV_Len)> <D(Head_Dim)>\n", argv[0]);
+        printf("[Config(default)]: M: %d, N: %d, D: %d\n\n", M, N, D);
     }
 
-    matmul_q_kt(seq_len, seq_len, head_dim, Q, K_mat, Score);
+    target_dtype* Q = (target_dtype*)malloc(M * D * sizeof(target_dtype));
+    target_dtype* K = (target_dtype*)malloc(N * D * sizeof(target_dtype));
+    target_dtype* V = (target_dtype*)malloc(N * D * sizeof(target_dtype));
+    target_dtype* Score = (target_dtype*)malloc(M * N * sizeof(target_dtype));  // Q * K^T
+    target_dtype* Out = (target_dtype*)malloc(M * D * sizeof(target_dtype));    // Score * V
 
-    target_dtype scale = (target_dtype)(1.0f / MATH_SQRT((float)head_dim));
-    scale_softmax(seq_len, seq_len, scale, Score);
+    init_matrix(Q, M, D);
+    init_matrix(K, N, D); //TODO: Sinlge KV cache to multi
+    init_matrix(V, N, D);
 
-    matmul_score_v(seq_len, head_dim, seq_len, Score, V, Out);
+    attention_MHA(Q, K, V, Score, Out, M, N, D);
 
     printf("Attention Computation Completed.\n");
-    // 출력 시 포맷 지정자(%f)와의 호환성을 위해 float으로 명시적 형변환
     printf("Sample Output[0]: %f\n", (float)Out[0]);
 
-    free(Q); free(K_mat); free(V); free(Score); free(Out);
+    free(Q); free(K); free(V); free(Score); free(Out);
     return 0;
 }
