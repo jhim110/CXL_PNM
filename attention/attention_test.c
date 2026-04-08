@@ -35,7 +35,7 @@ int verify_matrix(int N, const target_dtype *ref, const target_dtype *test, cons
     return SUCCESS;
  }
 
-void transpose (int M, int N, target_dtype *A, target_dtype *B) {
+void transpose(int M, int N, target_dtype *A, target_dtype *B) {
     for (int i = 0; i < M; i++) {
         for (int j = 0; j < N; j++) {
             B[j*M + i] = A[i*N + j];
