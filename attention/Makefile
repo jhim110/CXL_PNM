@@ -20,7 +20,6 @@ ifneq (,$(findstring aarch64-conda-linux-gnu,$(CROSS_COMPILE)))
     LDFLAGS     += -L$(ARM_ENV_DIR)/lib
 
     # 동적 링크(-lopenblas) 대신 정적 라이브러리 파일(.a)을 직접 지정
-    # 수학 라이브러리(-lm)는 시스템 기본이므로 그대로 둡니다.
     LDLIBS      := $(ARM_ENV_DIR)/lib/libopenblas.a -lm
 endif
 # =====================================================================

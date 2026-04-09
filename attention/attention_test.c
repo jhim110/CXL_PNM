@@ -188,7 +188,7 @@ void mha_batch_BLAS(target_dtype *Q, target_dtype *K, target_dtype *V, target_dt
 }
 
 //Work In Progress
-void mha_batch_BLAS_NoTrans(target_dtype *Q, target_dtype *K, target_dtype *V, target_dtype *score, target_dtype *O, int H, int S, int D) {}
+void mha_batch_BLAS_NoTrans(target_dtype *Q, target_dtype *K, target_dtype *V, target_dtype *score, target_dtype *O, int H, int S, int D) {
     target_dtype *K_T = (target_dtype*)malloc(sizeof(target_dtype) * H * S * D);
 
     for (int h = 0; h < H; h++) {
@@ -206,7 +206,7 @@ void mha_batch_BLAS_NoTrans(target_dtype *Q, target_dtype *K, target_dtype *V, t
                     S/*M*/, S/*N*/, D/*K*/,
                     1.0f,
                     Q_h, D,
-                    K_T_h, D,
+                    K_T_h, S,
                     0.0f/*beta*/,
                     score_h, S);
 
