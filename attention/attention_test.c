@@ -187,6 +187,46 @@ void mha_batch_BLAS(target_dtype *Q, target_dtype *K, target_dtype *V, target_dt
     }
 }
 
+//Work In Progress
+void mha_batch_BLAS_NoTrans(target_dtype *Q, target_dtype *K, target_dtype *V, target_dtype *score, target_dtype *O, int H, int S, int D) {}
+    target_dtype *K_T = (target_dtype*)malloc(sizeof(target_dtype) * H * S * D);
+
+    for (int h = 0; h < H; h++) {
+        target_dtype *Q_h = Q + h * S * D;
+        target_dtype *K_h = K + h * D * S;
+        target_dtype *V_h = V + h * S * D;
+        target_dtype *score_h = score + h * S * S;
+        target_dtype *O_h = O + h * S * D;
+
+        // openblas의 sgemm_direct_sme.. 를 호출하기 위해, alpha를 없애고, transpose도 직접 해봄.
+        target_dtype *K_T_h = K_T + h * D * S;
+        transpose(S, D, K_h, K_T_h);
+
+        cblas_sgemm(CblasRowMajor, CblasNoTrans/*TransA*/, CblasNoTrans/*TransB*/,
+                    S/*M*/, S/*N*/, D/*K*/,
+                    1.0f,
+                    Q_h, D,
+                    K_T_h, D,
+                    0.0f/*beta*/,
+                    score_h, S);
+
+        scaling(score_h, S, S, D);
+
+        softmax(S, score_h);
+
+        // 3. Score * V
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    S, D, S,
+                    1.0f,
+                    score_h, S,
+                    V_h, D,
+                    0.0f,
+                    O_h, D);
+    }
+
+    free(K_T);
+}
+
 void mha_batch_BLAS_batchedgemm(target_dtype *Q, target_dtype *K, target_dtype *V, target_dtype *score, target_dtype *O, int H, int S, int D) {
     target_dtype scale = 1.0f / sqrtf((target_dtype)D);
 
@@ -327,6 +367,7 @@ int main(int argc, char *argv[]) {
     init_matrix(K, total);
     init_matrix(V, total);
 
+#if 1
     //1. mha_batch (default - naive gemm)
     start = now_sec();
     for (int b = 0; b < B; b++) {
@@ -339,7 +380,9 @@ int main(int argc, char *argv[]) {
     }
     end = now_sec();
     printf("(Base) Elapsed time: %f sec\n", end - start);
+#endif
 
+#if 1
     //2. mha_batch_opt (naive gemm but a little optimization)
     start = now_sec();
     for (int b = 0; b < B; b++) {
@@ -352,7 +395,9 @@ int main(int argc, char *argv[]) {
     }
     end = now_sec();
     printf("(Opt) Elapsed time: %f sec\n", end - start);
+#endif
 
+#if 1
     //3. using BLAS lib.
     start = now_sec();
     for (int b = 0; b < B; b++) {
@@ -362,10 +407,13 @@ int main(int argc, char *argv[]) {
         target_dtype *s = score + b * H * S * S;
         target_dtype *o = O3 + b * H * S * D;
         mha_batch_BLAS(q, k, v, s, o, H, S, D);
+        //mha_batch_BLAS_NoTrans(q, k, v, s, o, H, S, D);
     }
     end = now_sec();
     printf("(BLAS) Elapsed time: %f sec\n", end - start);
+#endif
 
+#if 1
     //4. using BLAS lib + batched gemm (at head-level)
     start = now_sec();
     for (int b = 0; b < B; b++) {
@@ -378,7 +426,9 @@ int main(int argc, char *argv[]) {
     }
     end = now_sec();
     printf("(BLAS_batchedgemm) Elapsed time: %f sec\n", end - start);
+#endif
 
+#if 1
     //5. using BLAS lib + batched gemm (at batch-level)
     int total_groups = B * H; // 전체 처리해야 할 행렬(Head)의 총합
     const target_dtype **q_ptrs = (const target_dtype **)malloc(total_groups * sizeof(target_dtype*));
@@ -400,6 +450,7 @@ int main(int argc, char *argv[]) {
     mha_batch_BLAS_batchedgemm_opt(q_ptrs, k_ptrs, v_ptrs, score_ptrs, o_ptrs, total_groups, S, D);
     end = now_sec();
     printf("(BLAS_batchedgemm_opt) Elapsed time: %f sec\n", end - start);
+#endif
 
     //Verify
     verify_matrix(B * H * S * D, O1, O2, "mha_batch_opt");
